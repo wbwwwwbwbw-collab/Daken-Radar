@@ -22,6 +22,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -34,11 +40,12 @@ jobs:
           sudo apt-get install -y \
             build-essential \
             git \
-            openjdk-11-jdk-headless \
             libffi-dev \
             libssl-dev \
             libjpeg-dev \
-            zlib1g-dev
+            zlib1g-dev \
+            libpng-dev \
+            libfreetype6-dev
 
       - name: Install Python dependencies
         run: |
@@ -61,12 +68,12 @@ jobs:
       - name: Verify APK
         run: |
           echo "Checking for APK files..."
-          if [ -f bin/*.apk ]; then
+          if find bin/ -name "*.apk" -type f 2>/dev/null | grep -q .; then
             ls -lh bin/*.apk
             echo "✓ APK built successfully"
           else
             echo "✗ APK not found!"
-            ls -la bin/
+            ls -la bin/ 2>/dev/null || echo "bin/ directory does not exist"
             exit 1
           fi
 
