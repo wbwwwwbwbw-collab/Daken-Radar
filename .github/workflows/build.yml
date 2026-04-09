@@ -14,24 +14,28 @@ jobs:
     timeout-minutes: 120
     
     steps:
-      - name: 📥 Checkout code
+      # ========== 1. تحميل الكود ==========
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: ☕ Setup Java
+      # ========== 2. إعداد Java ==========
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'microsoft'
           java-version: '11'
           cache: 'none'
 
-      - name: 🐍 Setup Python
+      # ========== 3. إعداد Python ==========
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 📦 Install system dependencies
+      # ========== 4. تثبيت dependencies ==========
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -59,48 +63,52 @@ jobs:
             pkg-config \
             cmake
 
-      - name: 📚 Install Python packages
+      # ========== 5. تثبيت Python packages ==========
+      - name: Install Python packages
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install cython==0.29.37
           pip install buildozer==1.5.0
 
-      - name: 📝 Create requirements.txt
+      # ========== 6. إنشاء requirements.txt ==========
+      - name: Create requirements.txt
         run: |
           cat > requirements.txt << 'EOF'
           kivy==2.2.1
           EOF
 
-      - name: ✅ Verify project files
+      # ========== 7. التحقق من الملفات ==========
+      - name: Verify project files
         run: |
           echo "========================================="
           echo "Checking project files..."
           echo "========================================="
           
           if [ ! -f main.py ]; then
-            echo "❌ main.py not found!"
+            echo "main.py not found!"
             ls -la
             exit 1
           fi
           
           if [ ! -f buildozer.spec ]; then
-            echo "❌ buildozer.spec not found!"
+            echo "buildozer.spec not found!"
             ls -la
             exit 1
           fi
           
-          echo "✅ main.py found"
-          echo "✅ buildozer.spec found"
+          echo "main.py found"
+          echo "buildozer.spec found"
           
           echo ""
-          echo "📄 main.py first 10 lines:"
+          echo "main.py first 10 lines:"
           head -10 main.py
           
           echo ""
-          echo "📄 buildozer.spec content:"
+          echo "buildozer.spec content:"
           cat buildozer.spec
 
-      - name: 💾 Cache buildozer
+      # ========== 8. Cache Buildozer ==========
+      - name: Cache buildozer
         uses: actions/cache@v4
         with:
           path: |
@@ -110,7 +118,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      - name: 🤖 Setup Android SDK
+      # ========== 9. إعداد Android SDK ==========
+      - name: Setup Android SDK
         run: |
           mkdir -p ~/android-sdk
           cd ~/android-sdk
@@ -128,7 +137,8 @@ jobs:
           echo "ANDROID_SDK_ROOT=~/android-sdk" >> $GITHUB_ENV
           echo "ANDROID_HOME=~/android-sdk" >> $GITHUB_ENV
 
-      - name: 🤖 Setup Android NDK
+      # ========== 10. إعداد Android NDK ==========
+      - name: Setup Android NDK
         run: |
           if [ ! -d ~/android-ndk-r23b ]; then
             cd ~
@@ -139,7 +149,8 @@ jobs:
           echo "ANDROID_NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
           echo "NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
 
-      - name: 🔨 Build APK
+      # ========== 11. بناء APK ==========
+      - name: Build APK
         run: |
           echo "========================================="
           echo "Starting APK build..."
@@ -164,10 +175,11 @@ jobs:
           NDK_HOME: ~/android-ndk-r23b
           JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
 
-      - name: ✅ Verify APK
+      # ========== 12. التحقق من APK ==========
+      - name: Verify APK
         run: |
           echo "========================================="
-          echo "🔍 Searching for APK files..."
+          echo "Searching for APK files..."
           echo "========================================="
           
           find . -name "*.apk" -type f 2>/dev/null
@@ -176,23 +188,25 @@ jobs:
           
           if [ $APK_COUNT -gt 0 ]; then
             echo ""
-            echo "✅ APK built successfully!"
-            echo "📦 Found $APK_COUNT APK file(s):"
+            echo "APK built successfully!"
+            echo "Found $APK_COUNT APK file(s):"
             find . -name "*.apk" -type f -exec ls -lh {} \;
           else
             echo ""
-            echo "❌ APK not found!"
+            echo "APK not found!"
             exit 1
           fi
 
-      - name: 📋 Copy APK to bin
+      # ========== 13. نسخ APK ==========
+      - name: Copy APK to bin
         run: |
           mkdir -p bin
           find . -name "*.apk" -type f -exec cp {} bin/ \;
-          echo "✅ APK copied to bin/"
+          echo "APK copied to bin/"
           ls -lh bin/
 
-      - name: 📤 Upload APK artifact
+      # ========== 14. رفع APK ==========
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Daken-Radar-${{ github.run_number }}
@@ -200,7 +214,8 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: 📋 Upload build logs on failure
+      # ========== 15. رفع السجلات عند الفشل ==========
+      - name: Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
