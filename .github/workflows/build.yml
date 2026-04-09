@@ -1,47 +1,101 @@
-name: Build Daken Radar
+name: Build Daken Radar APK
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
-  workflow_dispatch: # للتشغيل اليدوي
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # تحديث لـ v4
-      
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Set up Python
-        uses: actions/setup-python@v5 # تحديث لـ v5
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-      - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1 # المحرك الشغال حالياً
-        with:
-          buildozer_version: master
-          python_version: '3.11'
-          subcommand: android debug
-          workdir: . # لضمان إيجاد ملف spec
+          cache: 'pip'
 
-      - name: Check APK exists
-        run: ls -la bin/ || echo "No APK found"
-      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            openjdk-11-jdk-headless \
+            libffi-dev \
+            libssl-dev \
+            libjpeg-dev \
+            zlib1g-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install buildozer cython
+
+      - name: Create buildozer.spec
+        run: |
+          if [ ! -f buildozer.spec ]; then
+            buildozer init
+          fi
+
+      - name: Build APK
+        run: |
+          buildozer -v android debug
+        env:
+          ANDROID_SDK_VERSION: 30
+          ANDROID_NDK_VERSION: 23b
+
+      - name: Verify APK
+        run: |
+          echo "Checking for APK files..."
+          if [ -f bin/*.apk ]; then
+            ls -lh bin/*.apk
+            echo "✓ APK built successfully"
+          else
+            echo "✗ APK not found!"
+            ls -la bin/
+            exit 1
+          fi
+
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4 # تحديث لـ v4 لضمان الرفع
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
-          name: Daken-Radar-APK
+          name: Daken-Radar-APK-${{ github.run_number }}
           path: bin/*.apk
           retention-days: 30
-      
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2 # تحديث لـ v2
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') && success()
+        uses: softprops/action-gh-release@v2
         with:
           files: bin/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            .buildozer/android/platform/build-*/build/outputs/
+            .buildozer/logs/
+          retention-days: 7
