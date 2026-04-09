@@ -13,6 +13,8 @@ jobs:
           buildozer_version: master
           python_version: 3.11
           subcommand: android debug
+          # هذا السطر يخبره أن يبحث في الصفحة الرئيسية
+          workdir: . 
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
