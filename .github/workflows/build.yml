@@ -2,107 +2,280 @@ name: Build Daken Radar APK
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: 'Build debug APK'
+        required: false
+        default: true
+        type: boolean
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+env:
+  BUILD_NUMBER: ${{ github.run_number }}
+  BUILD_DATE: ${{ github.event.repository.updated_at }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    name: Build APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
     
     steps:
-      - name: Checkout code
+      # ========== 1. تحميل الكود ==========
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          clean: true
 
-      - name: Set up Java
-        uses: actions/setup-java@v3
+      # ========== 2. إعداد Java ==========
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '11'
+          distribution: 'microsoft'
+          java-version: '17'
+          cache: 'gradle'
 
-      - name: Set up Python
+      # ========== 3. إعداد Python ==========
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install system dependencies
+      # ========== 4. تثبيت dependencies النظام ==========
+      - name: 📦 Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
             git \
+            ccache \
             libffi-dev \
             libssl-dev \
             libjpeg-dev \
             zlib1g-dev \
             libpng-dev \
-            libfreetype6-dev
+            libfreetype6-dev \
+            libncurses5-dev \
+            libreadline-dev \
+            sqlite3 \
+            tk-dev \
+            xz-utils \
+            zip \
+            unzip \
+            curl \
+            wget \
+            file \
+            openjdk-17-jdk \
+            autoconf \
+            libtool \
+            pkg-config
 
-      - name: Install Python dependencies
+      # ========== 5. تثبيت Python packages ==========
+      - name: 📚 Install Python packages
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install buildozer cython
+          pip install --upgrade cython
+          pip install buildozer==1.5.0
+          pip install virtualenv
 
-      - name: Create buildozer.spec
+      # ========== 6. إنشاء ملف requirements.txt ==========
+      - name: 📝 Create requirements.txt
         run: |
-          if [ ! -f buildozer.spec ]; then
-            buildozer init
+          cat > requirements.txt << 'EOF'
+          kivy==2.2.1
+          kivy-garden==0.1.5
+          pygments==2.17.2
+          docutils==0.20.1
+          EOF
+
+      # ========== 7. التحقق من وجود main.py و buildozer.spec ==========
+      - name: ✅ Verify project files
+        run: |
+          echo "Checking project files..."
+          if [ ! -f main.py ]; then
+            echo "❌ main.py not found!"
+            exit 1
           fi
+          if [ ! -f buildozer.spec ]; then
+            echo "❌ buildozer.spec not found!"
+            exit 1
+          fi
+          echo "✅ main.py found"
+          echo "✅ buildozer.spec found"
+          echo ""
+          echo "📄 buildozer.spec content:"
+          cat buildozer.spec
 
-      - name: Build APK
+      # ========== 8. Cache Buildozer ==========
+      - name: 💾 Cache buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-
+
+      # ========== 9. إعداد Android SDK (يدوياً) ==========
+      - name: 🤖 Setup Android SDK
         run: |
+          mkdir -p ~/android-sdk
+          cd ~/android-sdk
+          
+          # تحميل Command line tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip -q commandlinetools-linux-9477386_latest.zip
+          rm commandlinetools-linux-9477386_latest.zip
+          
+          # إعداد المسارات
+          mkdir -p cmdline-tools/latest
+          mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+          
+          # قبول التراخيص
+          yes | ~/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          
+          # تثبيت المنصات المطلوبة
+          ~/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "build-tools;30.0.3" "platform-tools"
+          
+          echo "ANDROID_SDK_ROOT=~/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_HOME=~/android-sdk" >> $GITHUB_ENV
+
+      # ========== 10. إعداد Android NDK ==========
+      - name: 🤖 Setup Android NDK
+        run: |
+          cd ~
+          wget -q https://dl.google.com/android/repository/android-ndk-r23b-linux.zip
+          unzip -q android-ndk-r23b-linux.zip
+          rm android-ndk-r23b-linux.zip
+          echo "ANDROID_NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
+          echo "NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
+
+      # ========== 11. بناء APK ==========
+      - name: 🔨 Build APK
+        run: |
+          # تنظيف أي بناء سابق
+          rm -rf .buildozer
+          
+          # بناء APK
           buildozer -v android debug
         env:
-          ANDROID_SDK_VERSION: 30
-          ANDROID_NDK_VERSION: 23b
+          ANDROID_SDK_ROOT: ~/android-sdk
+          ANDROID_HOME: ~/android-sdk
+          ANDROID_NDK_HOME: ~/android-ndk-r23b
+          NDK_HOME: ~/android-ndk-r23b
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
 
-      - name: Verify APK
+      # ========== 12. التحقق من نجاح البناء ==========
+      - name: ✅ Verify APK
         run: |
-          echo "Checking for APK files..."
-          if find bin/ -name "*.apk" -type f 2>/dev/null | grep -q .; then
-            ls -lh bin/*.apk
-            echo "✓ APK built successfully"
+          echo "========================================="
+          echo "🔍 Searching for APK files..."
+          echo "========================================="
+          
+          # البحث عن APK
+          find . -name "*.apk" -type f 2>/dev/null
+          
+          APK_COUNT=$(find . -name "*.apk" -type f 2>/dev/null | wc -l)
+          
+          if [ $APK_COUNT -gt 0 ]; then
+            echo ""
+            echo "✅ APK built successfully!"
+            echo "📦 Found $APK_COUNT APK file(s):"
+            find . -name "*.apk" -type f -exec ls -lh {} \;
           else
-            echo "✗ APK not found!"
-            ls -la bin/ 2>/dev/null || echo "bin/ directory does not exist"
+            echo ""
+            echo "❌ APK not found!"
+            echo ""
+            echo "📁 Directory structure:"
+            ls -la
+            echo ""
+            echo "📁 .buildozer directory:"
+            ls -la .buildozer/ 2>/dev/null || echo ".buildozer not found"
+            echo ""
+            echo "📁 bin directory:"
+            ls -la bin/ 2>/dev/null || echo "bin not found"
             exit 1
           fi
 
-      - name: Upload APK Artifact
-        if: success()
+      # ========== 13. نسخ APK إلى مجلد bin ==========
+      - name: 📋 Copy APK to bin
+        run: |
+          mkdir -p bin
+          find . -name "*.apk" -type f -exec cp {} bin/ \;
+          echo "✅ APK copied to bin/ directory"
+
+      # ========== 14. رفع APK كـ Artifact ==========
+      - name: 📤 Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Daken-Radar-APK-${{ github.run_number }}
+          name: Daken-Radar-${{ github.run_number }}
           path: bin/*.apk
           retention-days: 30
+          compression-level: 6
           if-no-files-found: error
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') && success()
-        uses: softprops/action-gh-release@v2
-        with:
-          files: bin/*.apk
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload logs on failure
+      # ========== 15. رفع السجلات عند الفشل ==========
+      - name: 📋 Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ github.run_number }}
+          name: buildozer-logs-${{ github.run_number }}
           path: |
-            .buildozer/android/platform/build-*/build/outputs/
-            .buildozer/logs/
+            .buildozer/
+            *.log
           retention-days: 7
+          if-no-files-found: warn
+
+  # ========== Job منفصل للإصدارات ==========
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: 📥 Download APK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: 📦 Prepare release files
+        run: |
+          mkdir -p release-files
+          find artifacts -name "*.apk" -exec cp {} release-files/ \;
+          ls -lh release-files/
+      
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-files/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          name: "Daken Radar v${{ github.ref_name }}"
+          body: |
+            ## 🎱 Daken Radar APK
+            
+            ### ✨ الميزات:
+            - فيزياء كاملة للتصادمات
+            - خطوط رصاصية لتوجيه التسديد
+            - يعمل بدون روت
+            - شفاف بالكامل
+            
+            ### 📦 التثبيت:
+            1. حمل ملف APK
+            2. ثبّته على هاتفك
+            3. امنح صلاحية "الظهور فوق التطبيقات"
+            4. استمتع!
+            
+            ### 🔧 متطلبات:
+            - Android 5.0+
+            - 30MB مساحة خالية
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
