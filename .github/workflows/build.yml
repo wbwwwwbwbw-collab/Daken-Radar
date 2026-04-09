@@ -1,0 +1,21 @@
+name: Build Daken Radar
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build with Buildozer
+        uses: KasperFB/buildozer-action@v1
+        with:
+          buildozer_version: master
+          python_version: 3.11
+          subcommand: android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: Daken-Radar-APK
+          path: bin/*.apk
