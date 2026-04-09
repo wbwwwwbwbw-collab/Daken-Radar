@@ -1,23 +1,47 @@
 name: Build Daken Radar
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch: # للتشغيل اليدوي
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-
+      - name: Checkout code
+        uses: actions/checkout@v4 # تحديث لـ v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5 # تحديث لـ v5
+        with:
+          python-version: '3.11'
+      
       - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
+        uses: ArtemSBulgakov/buildozer-action@v1 # المحرك الشغال حالياً
         with:
           buildozer_version: master
-          python_version: 3.11
+          python_version: '3.11'
           subcommand: android debug
-          # هذا السطر يخبره أن يبحث في الصفحة الرئيسية
-          workdir: . 
+          workdir: . # لضمان إيجاد ملف spec
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Check APK exists
+        run: ls -la bin/ || echo "No APK found"
+      
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4 # تحديث لـ v4 لضمان الرفع
         with:
           name: Daken-Radar-APK
           path: bin/*.apk
+          retention-days: 30
+      
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2 # تحديث لـ v2
+        with:
+          files: bin/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
