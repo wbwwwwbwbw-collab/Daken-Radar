@@ -6,15 +6,6 @@ on:
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
-    inputs:
-      debug_mode:
-        description: 'Build debug APK'
-        required: false
-        default: true
-        type: boolean
-
-env:
-  BUILD_NUMBER: ${{ github.run_number }}
 
 jobs:
   build:
@@ -28,22 +19,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          clean: true
 
-      # ========== 2. إعداد Java ==========
+      # ========== 2. إعداد Java (بدون cache) ==========
       - name: ☕ Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'microsoft'
-          java-version: '17'
-          cache: 'gradle'
+          java-version: '11'
+          cache: 'none'  # مهم: نمنع cache لأن مشروعنا ليس Gradle
 
       # ========== 3. إعداد Python ==========
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       # ========== 4. تثبيت dependencies النظام ==========
       - name: 📦 Install system dependencies
@@ -52,7 +41,6 @@ jobs:
           sudo apt-get install -y \
             build-essential \
             git \
-            ccache \
             libffi-dev \
             libssl-dev \
             libjpeg-dev \
@@ -69,11 +57,12 @@ jobs:
             curl \
             wget \
             file \
-            openjdk-17-jdk \
+            openjdk-11-jdk \
             autoconf \
             libtool \
             pkg-config \
-            cmake
+            cmake \
+            ccache
 
       # ========== 5. تثبيت Python packages ==========
       - name: 📚 Install Python packages
@@ -81,50 +70,56 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install --upgrade cython==0.29.37
           pip install buildozer==1.5.0
-          pip install virtualenv
 
       # ========== 6. إنشاء ملف requirements.txt ==========
       - name: 📝 Create requirements.txt
         run: |
           cat > requirements.txt << 'EOF'
           kivy==2.2.1
-          kivy-garden==0.1.5
-          pygments==2.17.2
-          docutils==0.20.1
           EOF
 
       # ========== 7. التحقق من وجود الملفات ==========
       - name: ✅ Verify project files
         run: |
+          echo "========================================="
           echo "Checking project files..."
+          echo "========================================="
+          
           if [ ! -f main.py ]; then
             echo "❌ main.py not found!"
+            ls -la
             exit 1
           fi
+          
           if [ ! -f buildozer.spec ]; then
             echo "❌ buildozer.spec not found!"
+            ls -la
             exit 1
           fi
+          
           echo "✅ main.py found"
           echo "✅ buildozer.spec found"
           
-          # عرض محتوى buildozer.spec
+          echo ""
+          echo "📄 main.py first 10 lines:"
+          head -10 main.py
+          
           echo ""
           echo "📄 buildozer.spec content:"
           cat buildozer.spec
 
-      # ========== 8. Cache Buildozer (بدون مسحه لاحقاً) ==========
+      # ========== 8. Cache Buildozer ==========
       - name: 💾 Cache buildozer
         uses: actions/cache@v4
         with:
           path: |
             ~/.buildozer
             .buildozer
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec', 'requirements.txt') }}
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      # ========== 9. إعداد Android SDK يدوياً ==========
+      # ========== 9. إعداد Android SDK ==========
       - name: 🤖 Setup Android SDK
         run: |
           mkdir -p ~/android-sdk
@@ -145,7 +140,7 @@ jobs:
           yes | ~/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
           
           # تثبيت المنصات المطلوبة
-          ~/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "build-tools;30.0.3" "platform-tools"
+          ~/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "build-tools;30.0.3" "platform-tools" > /dev/null 2>&1
           
           echo "ANDROID_SDK_ROOT=~/android-sdk" >> $GITHUB_ENV
           echo "ANDROID_HOME=~/android-sdk" >> $GITHUB_ENV
@@ -162,20 +157,33 @@ jobs:
           echo "ANDROID_NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
           echo "NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
 
-      # ========== 11. بناء APK (بدون مسح Cache) ==========
+      # ========== 11. بناء APK ==========
       - name: 🔨 Build APK
         run: |
+          echo "========================================="
           echo "Starting APK build..."
-          echo "Using existing .buildozer cache if available"
+          echo "========================================="
           
-          # بناء APK (نحذف rm -rf .buildozer عشان نحافظ على الـ Cache)
+          # عرض الإعدادات
+          echo "Java version:"
+          java -version
+          
+          echo ""
+          echo "Python version:"
+          python --version
+          
+          echo ""
+          echo "Buildozer version:"
+          buildozer --version
+          
+          # بناء APK
           buildozer -v android debug
         env:
           ANDROID_SDK_ROOT: ~/android-sdk
           ANDROID_HOME: ~/android-sdk
           ANDROID_NDK_HOME: ~/android-ndk-r23b
           NDK_HOME: ~/android-ndk-r23b
-          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
 
       # ========== 12. التحقق من نجاح البناء ==========
       - name: ✅ Verify APK
@@ -198,36 +206,29 @@ jobs:
             echo ""
             echo "❌ APK not found!"
             echo ""
-            echo "📁 Directory structure:"
-            ls -la
-            echo ""
             echo "📁 .buildozer directory:"
             ls -la .buildozer/ 2>/dev/null || echo ".buildozer not found"
             echo ""
             echo "📁 bin directory:"
             ls -la bin/ 2>/dev/null || echo "bin not found"
-            echo ""
-            echo "📁 ~/.buildozer directory:"
-            ls -la ~/.buildozer/ 2>/dev/null || echo "~/.buildozer not found"
             exit 1
           fi
 
-      # ========== 13. نسخ APK إلى مجلد bin ==========
+      # ========== 13. نسخ APK ==========
       - name: 📋 Copy APK to bin
         run: |
           mkdir -p bin
           find . -name "*.apk" -type f -exec cp {} bin/ \;
-          echo "✅ APK copied to bin/ directory"
+          echo "✅ APK copied to bin/"
           ls -lh bin/
 
-      # ========== 14. رفع APK كـ Artifact ==========
+      # ========== 14. رفع APK ==========
       - name: 📤 Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Daken-Radar-${{ github.run_number }}
           path: bin/*.apk
           retention-days: 30
-          compression-level: 6
           if-no-files-found: error
 
       # ========== 15. رفع السجلات عند الفشل ==========
@@ -239,60 +240,4 @@ jobs:
           path: |
             .buildozer/
             *.log
-            ~/.buildozer/
           retention-days: 7
-          if-no-files-found: warn
-
-  # ========== Job منفصل للإصدارات (اختياري) ==========
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-22.04
-    if: startsWith(github.ref, 'refs/tags/')
-    
-    steps:
-      - name: 📥 Download APK artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      
-      - name: 📦 Prepare release files
-        run: |
-          mkdir -p release-files
-          find artifacts -name "*.apk" -exec cp {} release-files/ \;
-          ls -lh release-files/
-      
-      - name: 🚀 Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release-files/*.apk
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          name: "Daken Radar v${{ github.ref_name }}"
-          body: |
-            ## 🎱 Daken Radar APK
-            
-            ### ✨ الميزات:
-            - فيزياء كاملة للتصادمات
-            - خطوط رصاصية لتوجيه التسديد
-            - يعمل بدون روت
-            - شفاف بالكامل
-            - نقرتان فقط لتحديد الكرات
-            - ضغطة مطولة لتفعيل التتبع
-            
-            ### 📦 التثبيت:
-            1. حمل ملف APK من الأسفل
-            2. ثبّته على هاتفك
-            3. امنح صلاحية "الظهور فوق التطبيقات"
-            4. افتح التطبيق ثم لعبة البلياردو
-            5. استمتع!
-            
-            ### 🔧 متطلبات:
-            - Android 5.0 (API 21) فأعلى
-            - 30MB مساحة خالية
-            
-            ### 📖 طريقة الاستخدام:
-            [رابط الشرح]
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
