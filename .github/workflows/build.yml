@@ -14,27 +14,23 @@ jobs:
     timeout-minutes: 120
     
     steps:
-      # ========== 1. تحميل الكود ==========
       - name: 📥 Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ========== 2. إعداد Java (بدون cache) ==========
       - name: ☕ Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'microsoft'
           java-version: '11'
-          cache: 'none'  # مهم: نمنع cache لأن مشروعنا ليس Gradle
+          cache: 'none'
 
-      # ========== 3. إعداد Python ==========
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ========== 4. تثبيت dependencies النظام ==========
       - name: 📦 Install system dependencies
         run: |
           sudo apt-get update
@@ -61,24 +57,20 @@ jobs:
             autoconf \
             libtool \
             pkg-config \
-            cmake \
-            ccache
+            cmake
 
-      # ========== 5. تثبيت Python packages ==========
       - name: 📚 Install Python packages
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install --upgrade cython==0.29.37
+          pip install cython==0.29.37
           pip install buildozer==1.5.0
 
-      # ========== 6. إنشاء ملف requirements.txt ==========
       - name: 📝 Create requirements.txt
         run: |
           cat > requirements.txt << 'EOF'
           kivy==2.2.1
           EOF
 
-      # ========== 7. التحقق من وجود الملفات ==========
       - name: ✅ Verify project files
         run: |
           echo "========================================="
@@ -108,7 +100,6 @@ jobs:
           echo "📄 buildozer.spec content:"
           cat buildozer.spec
 
-      # ========== 8. Cache Buildozer ==========
       - name: 💾 Cache buildozer
         uses: actions/cache@v4
         with:
@@ -119,33 +110,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
-      # ========== 9. إعداد Android SDK ==========
       - name: 🤖 Setup Android SDK
         run: |
           mkdir -p ~/android-sdk
           cd ~/android-sdk
           
-          # تحميل Command line tools
           if [ ! -f commandlinetools-linux-9477386_latest.zip ]; then
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
           fi
           
           unzip -q -o commandlinetools-linux-9477386_latest.zip
-          
-          # إعداد المسارات
           mkdir -p cmdline-tools/latest
           mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
-          
-          # قبول التراخيص
           yes | ~/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
-          
-          # تثبيت المنصات المطلوبة
           ~/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "build-tools;30.0.3" "platform-tools" > /dev/null 2>&1
           
           echo "ANDROID_SDK_ROOT=~/android-sdk" >> $GITHUB_ENV
           echo "ANDROID_HOME=~/android-sdk" >> $GITHUB_ENV
 
-      # ========== 10. إعداد Android NDK ==========
       - name: 🤖 Setup Android NDK
         run: |
           if [ ! -d ~/android-ndk-r23b ]; then
@@ -157,14 +139,12 @@ jobs:
           echo "ANDROID_NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
           echo "NDK_HOME=~/android-ndk-r23b" >> $GITHUB_ENV
 
-      # ========== 11. بناء APK ==========
       - name: 🔨 Build APK
         run: |
           echo "========================================="
           echo "Starting APK build..."
           echo "========================================="
           
-          # عرض الإعدادات
           echo "Java version:"
           java -version
           
@@ -176,7 +156,6 @@ jobs:
           echo "Buildozer version:"
           buildozer --version
           
-          # بناء APK
           buildozer -v android debug
         env:
           ANDROID_SDK_ROOT: ~/android-sdk
@@ -185,14 +164,12 @@ jobs:
           NDK_HOME: ~/android-ndk-r23b
           JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
 
-      # ========== 12. التحقق من نجاح البناء ==========
       - name: ✅ Verify APK
         run: |
           echo "========================================="
           echo "🔍 Searching for APK files..."
           echo "========================================="
           
-          # البحث عن APK
           find . -name "*.apk" -type f 2>/dev/null
           
           APK_COUNT=$(find . -name "*.apk" -type f 2>/dev/null | wc -l)
@@ -205,16 +182,9 @@ jobs:
           else
             echo ""
             echo "❌ APK not found!"
-            echo ""
-            echo "📁 .buildozer directory:"
-            ls -la .buildozer/ 2>/dev/null || echo ".buildozer not found"
-            echo ""
-            echo "📁 bin directory:"
-            ls -la bin/ 2>/dev/null || echo "bin not found"
             exit 1
           fi
 
-      # ========== 13. نسخ APK ==========
       - name: 📋 Copy APK to bin
         run: |
           mkdir -p bin
@@ -222,7 +192,6 @@ jobs:
           echo "✅ APK copied to bin/"
           ls -lh bin/
 
-      # ========== 14. رفع APK ==========
       - name: 📤 Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -231,7 +200,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # ========== 15. رفع السجلات عند الفشل ==========
       - name: 📋 Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
